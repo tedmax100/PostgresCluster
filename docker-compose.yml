@@ -28,8 +28,24 @@ services:
       -c max_wal_senders=10 
       -c max_replication_slots=10 
       -c hot_standby_feedback=on
+      -c track_activities=on
+      -c track_counts=on
+      -c track_io_timing=on
+      -c log_connections=on
+      -c log_disconnections=on
+      -c log_rotation_age=1d
+      -c log_rotation_size=10MB
+      -c log_min_duration_statement=500 
+      -c shared_buffers=256MB
+      -c effective_cache_size=512MB
+      -c checkpoint_timeout=10min
     volumes:
       - ./init/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: "pg_isready -U user"
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
   postgres_replica:
     <<: *postgres-common
@@ -40,14 +56,30 @@ services:
       PGPASSWORD: replicator_password
     command: |
       bash -c "
+      RETRY_DELAY=1
       until pg_basebackup --pgdata=/var/lib/postgresql/data -R --slot=replication_slot --host=postgres_primary --port=5432
       do
       echo 'Waiting for primary to connect...'
-      sleep 1s
+      sleep \$RETRY_DELAY
+      RETRY_DELAY=\$((RETRY_DELAY * 2))
+      if [ \$RETRY_DELAY -gt 60 ]; then
+        RETRY_DELAY=60
+      fi
       done
       echo 'Backup done, starting replica...'
       chmod 0700 /var/lib/postgresql/data
       postgres
       "
     depends_on:
-      - postgres_primary
+      postgres_primary:
+        condition: service_healthy
+    restart: on-failure
+    healthcheck:
+      test: |
+        bash -c "
+        psql -U replicator -d postgres -c 'SELECT state FROM pg_stat_wal_receiver' | grep streaming
+        if [ $? -ne 0 ]; then exit 1; fi
+        "
+      interval: 10s
+      timeout: 5s
+      retries: 3

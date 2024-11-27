@@ -1,3 +1,7 @@
+CREATE ROLE replicator WITH REPLICATION LOGIN ENCRYPTED PASSWORD 'replicator_password';
+SELECT * FROM pg_create_physical_replication_slot('replication_slot');
+
+
 CREATE TABLE products (
     id VARCHAR(20) PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
