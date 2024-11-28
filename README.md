@@ -18,3 +18,28 @@ pg_basebackup: 用於從主節點進行基礎資料備份並啟用 Streaming Rep
 --port: 主節點的Port為 5432。  
 使用 bash 腳本保證在主節點可用之前循環等待連線。  
 一旦備份完成，啟動從節點的 postgres 服務。  
+
+## GORM 讀寫分離
+```go=
+primaryDsn := "host=localhost user=user password=password dbname=postgres port=5432 sslmode=disable TimeZone=Asia/Taipei application_name=app"
+replicaDsn := "host=localhost user=user password=password dbname=postgres port=5433 sslmode=disable TimeZone=Asia/Taipei application_name=app"
+
+db, err := gorm.Open(postgres.Open(primaryDsn), &gorm.Config{})
+if err != nil {
+	panic("failed to connect database")
+}
+
+err = db.Use(
+	dbresolver.Register(dbresolver.Config{
+		Sources:           []gorm.Dialector{postgres.Open(primaryDsn)},
+		Replicas:          []gorm.Dialector{postgres.Open(replicaDsn)},
+		Policy:            dbresolver.RandomPolicy{},
+		TraceResolverMode: true,
+	}).
+		SetMaxIdleConns(2).
+		SetMaxOpenConns(2).
+		SetConnMaxIdleTime(10 * time.Minute).
+		SetConnMaxLifetime(1 * time.Hour),
+	)
+```
+
